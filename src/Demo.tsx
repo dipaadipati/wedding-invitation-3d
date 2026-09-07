@@ -137,63 +137,107 @@ export default function Demo() {
     }
   }, [])
 
-  /* Musik latar diputar loop lewat Web Audio API, BUKAN <audio loop>. Sebabnya:
-     atribut loop di <audio> tidak gapless di iOS (Safari & Chrome iOS sama-sama
-     WebKit) — tiap mencapai akhir lagu elemen berhenti lalu restart, menimbulkan
-     jeda beberapa ms di titik loop sehingga irama meleset dari metronome. Dengan
-     AudioBufferSourceNode.loop=true, file didecode sekali ke memori lalu diulang
-     sampel per sampel: tanpa jeda di semua perangkat. Autoplay bersuara diblokir
-     browser, jadi konteks di-resume dari gestur pertama (klik/sentuh/ketik),
-     tanpa tombol. */
+  /* Musik latar: Web Audio API sebagai SATU-SATUNYA mesin suara, karena loop-nya
+     gapless (AudioBufferSourceNode.loop=true memutar ulang sampel akurat) — atribut
+     loop di <audio> tidak gapless di iOS (WebKit me-restart elemen → jeda di titik
+     loop sehingga beat meleset dari metronome), dan <audio> yang ikut berbunyi
+     bersama Web Audio menimbulkan suara "double". Dua aturan iOS yang terbukti
+     menentukan dari percobaan:
+       1) AudioContext TIDAK boleh dibuat sebelum gestur — konteks yang lahir saat
+          halaman muat senyap di iPhone walau sudah di-resume. Di iOS konteks hanya
+          dibuat DI DALAM ketukan; di desktop dibuat saat muat (autoplay diizinkan).
+          Byte mp3 di-fetch sejak awal TANPA membentuk konteks, lalu di-decode
+          setelah konteks benar-benar 'running'.
+       2) Pemicu harus betul-betul ketukan (pointerdown/touchstart/keydown), bukan
+          sekadar scroll. Listener dilepas begitu sumber mulai. Tanpa tombol. */
   useEffect(() => {
-    type AudioContextCtor = new () => AudioContext
-    const ACtor: AudioContextCtor | undefined =
+    type AC = new () => AudioContext
+    const ACtor: AC | undefined =
       window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext
+      (window as unknown as { webkitAudioContext?: AC }).webkitAudioContext
     if (!ACtor) return
-    const ctx = new ACtor()
-    let buffer: AudioBuffer | null = null
+    const iOS =
+      /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    const url = `${import.meta.env.BASE_URL}audio/backsound.mp3`
+    const EVENTS = ['pointerdown', 'touchstart', 'keydown'] as const
+
+    let ctx: AudioContext | null = null
+    let bytes: ArrayBuffer | null = null
     let started = false
     let disposed = false
+    let lastTry = 0
 
-    const begin = () => {
-      if (!buffer || started || disposed) return
+    const startOn = (c: AudioContext) => {
+      if (disposed || started) return
+      const b = bytes
+      if (!b || c.state !== 'running') return
       started = true
-      const src = ctx.createBufferSource()
-      src.buffer = buffer
-      src.loop = true
-      const gain = ctx.createGain()
-      gain.gain.value = 0.55
-      src.connect(gain)
-      gain.connect(ctx.destination)
-      src.start(0)
+      c.decodeAudioData(b.slice(0))
+        .then((buffer) => {
+          if (disposed || started !== true || c.state === 'closed') return
+          const src = c.createBufferSource()
+          src.buffer = buffer
+          src.loop = true
+          const gain = c.createGain()
+          gain.gain.value = 0.55
+          src.connect(gain)
+          gain.connect(c.destination)
+          src.start(0)
+        })
+        .catch(() => {})
+    }
+    /* Pastikan ada konteks yang 'running', lalu mulai. Konteks yang tak 'running'
+       ditutup dan diganti konteks BARU di dalam pemanggilan ini — jadi saat dipicu
+       gestur, konteks lahir di dalam gestur (iOS); saat dipicu muat, lahir di
+       muat (desktop autoplay). */
+    const tryStart = async () => {
+      if (disposed || started) return
+      if (!bytes) return // fetch belum selesai → panggilan berikutnya mencoba lagi
+      const now = Date.now()
+      if (now - lastTry < 800) return // rapatkan rentetan event satu ketukan
+      lastTry = now
+      let c = ctx
+      if (c && c.state !== 'running') {
+        if (c.state !== 'closed') void c.close().catch(() => {})
+        c = null
+        ctx = null
+      }
+      if (!c) {
+        c = new ACtor()
+        ctx = c
+      }
+      if (c.state === 'suspended') {
+        try {
+          await c.resume()
+        } catch {
+          /* lanjut */
+        }
+      }
+      if (disposed || started || ctx !== c) return
+      startOn(c)
     }
     const unlock = () => {
-      void ctx.resume().then(begin).catch(() => {})
+      void tryStart()
     }
 
-    fetch(`${import.meta.env.BASE_URL}audio/backsound.mp3`)
+    // Muat byte mp3 sejak awal; di desktop langsung coba autoplay (mulai tanpa gestur).
+    fetch(url)
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status))
         return r.arrayBuffer()
       })
-      .then((ab) => ctx.decodeAudioData(ab))
-      .then((b) => {
-        buffer = b
-        unlock() // kalau konteks sudah boleh berbunyi (desktop) → langsung mulai
+      .then((ab) => {
+        bytes = ab
+        if (!iOS) void tryStart()
       })
       .catch(() => {})
 
-    unlock() // coba sejak muat; iOS menunggu sampai gestur pertama
-    for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
-      window.addEventListener(ev, unlock, { once: true })
-    }
+    for (const ev of EVENTS) window.addEventListener(ev, unlock)
     return () => {
       disposed = true
-      for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
-        window.removeEventListener(ev, unlock)
-      }
-      void ctx.close().catch(() => {})
+      for (const ev of EVENTS) window.removeEventListener(ev, unlock)
+      if (ctx && ctx.state !== 'closed') void ctx.close().catch(() => {})
     }
   }, [])
 
