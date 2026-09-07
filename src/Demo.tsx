@@ -115,7 +115,6 @@ export default function Demo() {
   const dotsRef = useRef<(HTMLButtonElement | null)[]>([])
   const hintRef = useRef<HTMLParagraphElement>(null)
   const maxRef = useRef(0)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
   const [boot, setBoot] = useState<'boot' | 'ready' | 'fallback'>('boot')
   const mid = BOUND.slice(0, -1).map((b, i) => (b + BOUND[i + 1]) / 2)
   // nama tamu dari URL, contoh: ?kepada=Adipati+dan+Partner
@@ -138,27 +137,64 @@ export default function Demo() {
     }
   }, [])
 
-  /* Musik latar langsung diputar (loop). Autoplay bersuara umumnya diblokir
-     browser sampai ada interaksi pengunjung, jadi play() dicoba sejak muat lalu
-     dipicu ulang dari gestur pertama (klik/sentuh/ketik), tanpa tombol. */
+  /* Musik latar diputar loop lewat Web Audio API, BUKAN <audio loop>. Sebabnya:
+     atribut loop di <audio> tidak gapless di iOS (Safari & Chrome iOS sama-sama
+     WebKit) — tiap mencapai akhir lagu elemen berhenti lalu restart, menimbulkan
+     jeda beberapa ms di titik loop sehingga irama meleset dari metronome. Dengan
+     AudioBufferSourceNode.loop=true, file didecode sekali ke memori lalu diulang
+     sampel per sampel: tanpa jeda di semua perangkat. Autoplay bersuara diblokir
+     browser, jadi konteks di-resume dari gestur pertama (klik/sentuh/ketik),
+     tanpa tombol. */
   useEffect(() => {
-    const a = audioRef.current
-    if (!a) return
-    a.volume = 0.55
-    const cleanup = () => {
-      for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
-        window.removeEventListener(ev, unlock)
-      }
+    type AudioContextCtor = new () => AudioContext
+    const ACtor: AudioContextCtor | undefined =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext
+    if (!ACtor) return
+    const ctx = new ACtor()
+    let buffer: AudioBuffer | null = null
+    let started = false
+    let disposed = false
+
+    const begin = () => {
+      if (!buffer || started || disposed) return
+      started = true
+      const src = ctx.createBufferSource()
+      src.buffer = buffer
+      src.loop = true
+      const gain = ctx.createGain()
+      gain.gain.value = 0.55
+      src.connect(gain)
+      gain.connect(ctx.destination)
+      src.start(0)
     }
     const unlock = () => {
-      void a.play().catch(() => {})
-      cleanup()
+      void ctx.resume().then(begin).catch(() => {})
     }
-    void a.play().catch(() => {})
+
+    fetch(`${import.meta.env.BASE_URL}audio/backsound.mp3`)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status))
+        return r.arrayBuffer()
+      })
+      .then((ab) => ctx.decodeAudioData(ab))
+      .then((b) => {
+        buffer = b
+        unlock() // kalau konteks sudah boleh berbunyi (desktop) → langsung mulai
+      })
+      .catch(() => {})
+
+    unlock() // coba sejak muat; iOS menunggu sampai gestur pertama
     for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
       window.addEventListener(ev, unlock, { once: true })
     }
-    return cleanup
+    return () => {
+      disposed = true
+      for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
+        window.removeEventListener(ev, unlock)
+      }
+      void ctx.close().catch(() => {})
+    }
   }, [])
 
   useEffect(() => {
@@ -196,12 +232,6 @@ export default function Demo() {
   return (
     <div className={rootClass}>
       <canvas ref={canvasRef} className="gl" />
-      <audio
-        ref={audioRef}
-        src={`${import.meta.env.BASE_URL}audio/backsound.mp3`}
-        loop
-        preload="auto"
-      />
       <div className="veil" aria-hidden="true" />
 
       <div className="stage" ref={stageRef}>
