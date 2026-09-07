@@ -1,0 +1,455 @@
+/* ============================================================ dasar
+   Undangan senja: teks di atas kanvas WebGL (fixed). Hampir semua elemen
+   bersifat pointer-events none agar penggulung halaman tetap bekerja. */
+
+:root {
+  --gold: #e7c14f;
+  --gold-soft: #f6e6c4;
+  --cream: #f7e9cf;
+  --muted: rgba(247, 233, 207, 0.72);
+  --faint: rgba(247, 233, 207, 0.5);
+  --line: rgba(231, 193, 79, 0.24);
+  --shadow: 0 2px 18px rgba(10, 4, 12, 0.55);
+  --serif: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: auto;
+}
+
+body {
+  margin: 0;
+  color-scheme: dark;
+  background:
+    radial-gradient(120% 90% at 50% 108%, #8a3b2a 0%, #4a1f2e 34%, #25122b 62%, #150a1c 100%);
+  font-family: var(--sans);
+  color: var(--cream);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ============================================================ kanvas + veil */
+.root {
+  position: relative;
+  min-height: 100vh;
+}
+
+.gl {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  z-index: 0;
+}
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgba(8, 4, 12, 0.6) 0%, rgba(8, 4, 12, 0) 16%, rgba(8, 4, 12, 0) 78%, rgba(8, 4, 12, 0.55) 100%),
+    radial-gradient(120% 90% at 50% 46%, rgba(10, 5, 12, 0) 46%, rgba(10, 5, 12, 0.5) 100%);
+}
+
+/* ============================================================ overlay bab */
+.stage {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.section {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  padding: 13vh 6vw 6vh;
+  opacity: 0;
+  visibility: hidden;
+  will-change: opacity, transform;
+}
+
+/* pembuka: menempel di BAGIAN BAWAH layar (gaya sampul: nama & tanggal di bawah,
+   adegan 3D karakter di atasnya). Ukuran ringkas berbasis tinggi agar blok tidak
+   terpotong layar pendek; jarak bawah memberi ruang petunjuk "Gulir". */
+.sec-cover {
+  justify-content: flex-end;
+  padding: 0 6vw clamp(40px, 7vh, 84px);
+}
+.sec-cover .eyebrow {
+  margin-bottom: 1.6vh;
+}
+.sec-cover .cover-date {
+  margin-top: 1.5vh;
+}
+
+/* penempatan tiap bab supaya tidak menutupi patung/pasangan di tengah-kanan */
+.sec-salam {
+  justify-content: flex-end;
+  align-items: flex-start;
+  text-align: left;
+  padding: 0 7vw 12vh;
+}
+.sec-akad {
+  justify-content: flex-end;
+  align-items: flex-start;
+  text-align: left;
+  padding: 0 7vw 8vh;
+}
+.sec-resepsi {
+  justify-content: center;
+  align-items: flex-end;
+  text-align: right;
+  padding: 0 7vw;
+}
+.sec-doa {
+  justify-content: center;
+  align-items: center;
+}
+
+/* ============================================================ tipografi bab */
+.eyebrow {
+  font-size: clamp(12px, 1.4vw, 15px);
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin: 0 0 2.4vh;
+}
+
+.name {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: clamp(38px, 9.5vh, 122px);
+  line-height: 0.95;
+  margin: 0;
+  color: var(--cream);
+  text-shadow:
+    0 1px 2px rgba(10, 4, 12, 0.6),
+    0 6px 40px rgba(10, 4, 12, 0.6);
+  letter-spacing: 0.02em;
+}
+
+.rings {
+  width: clamp(52px, min(8.5vh, 11vw), 102px);
+  height: auto;
+  margin: 0.9vh auto;
+  filter: drop-shadow(0 2px 10px rgba(10, 4, 12, 0.5));
+}
+
+.cover-date {
+  margin: 1.6vh 0 0;
+  font-size: clamp(14px, 1.7vw, 19px);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold-soft);
+  text-shadow: var(--shadow);
+}
+
+/* nama tamu dari URL ?kepada=... ; label "Kepada Yth." lalu nama besar di baris baru */
+.guest {
+  margin: 1.6vh auto 0;
+  max-width: min(90vw, 620px);
+  font-size: clamp(13px, 1.7vw, 18px);
+  letter-spacing: 0.14em;
+  color: var(--gold-soft);
+  text-shadow: var(--shadow);
+}
+.guest-name {
+  margin: 0.5vh auto 0;
+  max-width: min(92vw, 660px);
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: clamp(22px, min(3.4vh, 3.6vw), 46px);
+  line-height: 1.2;
+  color: var(--gold);
+  text-shadow: var(--shadow);
+}
+
+.card {
+  max-width: min(520px, 88vw);
+  border-radius: 18px;
+  padding: clamp(20px, 3.4vw, 34px) clamp(20px, 4vw, 40px);
+  text-align: left;
+  background: rgba(24, 9, 18, 0.42);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  box-shadow: 0 10px 44px rgba(8, 3, 9, 0.35);
+}
+
+.card h2 {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: clamp(24px, 4.2vw, 40px);
+  line-height: 1.12;
+  margin: 0 0 14px;
+  color: var(--cream);
+  text-shadow: var(--shadow);
+}
+
+.card .body {
+  font-size: clamp(15px, 1.9vw, 18px);
+  line-height: 1.75;
+  color: var(--muted);
+  margin: 0;
+}
+
+.card .chip {
+  display: inline-block;
+  margin: 0 0 16px;
+  font-size: 12px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: #0e0709;
+  background: var(--gold);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.card .l-date {
+  font-family: var(--serif);
+  font-size: clamp(22px, 3.4vw, 32px);
+  margin: 0 0 4px;
+  color: var(--cream);
+}
+
+.card .l-time {
+  font-size: clamp(16px, 2vw, 20px);
+  color: var(--gold-soft);
+  margin: 6px 0 0;
+  letter-spacing: 0.04em;
+}
+
+.card .note {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.card .sig {
+  margin: 22px 0 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: clamp(18px, 2.4vw, 24px);
+  color: var(--gold);
+  text-shadow: var(--shadow);
+}
+
+/* ============================================================ HUD
+   brand kecil, rel titik navigasi, petunjuk gulir, tag demo */
+.hud-brand {
+  position: fixed;
+  top: 20px;
+  left: 24px;
+  z-index: 5;
+  pointer-events: none;
+  font-size: 13px;
+  letter-spacing: 0.42em;
+  color: var(--gold-soft);
+  text-shadow: var(--shadow);
+}
+
+.mono {
+  font-weight: 600;
+}
+
+.rail {
+  position: fixed;
+  top: 50%;
+  right: 22px;
+  transform: translateY(-50%);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(247, 233, 207, 0.5);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+}
+
+.dot:hover {
+  border-color: var(--gold-soft);
+}
+
+.dot.on {
+  background: var(--gold);
+  border-color: var(--gold);
+  transform: scale(1.35);
+}
+
+.hint {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-shadow: var(--shadow);
+}
+
+.demo-tag {
+  position: fixed;
+  right: 16px;
+  bottom: 14px;
+  z-index: 5;
+  margin: 0;
+  font-size: 11px;
+  color: var(--faint);
+  text-shadow: var(--shadow);
+  pointer-events: none;
+}
+
+
+.loading {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--gold-soft);
+  background: rgba(24, 9, 18, 0.6);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 1;
+  transition: opacity 0.6s ease;
+  pointer-events: none;
+}
+
+.root.boot-ready .loading,
+.root.boot-fallback .loading {
+  opacity: 0;
+}
+
+/* ============================================================ trek scroll
+   Satu-satunya elemen dalam alur normal dokumen: panjang halaman = total bab. */
+.track {
+  display: block;
+  width: 1px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ============================================================ fallback WebGL
+   WebGL tak tersedia / gagal: sembunyikan kanvas & overlay, tumpuk bab statis. */
+.fallback {
+  display: none;
+}
+
+.root.boot-fallback .gl,
+.root.boot-fallback .veil,
+.root.boot-fallback .stage,
+.root.boot-fallback .hint,
+.root.boot-fallback .track {
+  display: none;
+}
+
+.root.boot-fallback .fallback {
+  display: block;
+  position: relative;
+  z-index: 2;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 14vh 22px 12vh;
+}
+
+.fb-cover {
+  text-align: center;
+  margin-bottom: 6vh;
+}
+
+.fb-card {
+  margin: 0 0 28px;
+}
+
+.fb-card .card {
+  max-width: none;
+}
+
+.fb-tag {
+  text-align: center;
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 5vh;
+}
+
+/* ============================================================ responsif kecil */
+@media (max-width: 760px) {
+  .rail {
+    display: none;
+  }
+
+  .sec-salam,
+  .sec-akad,
+  .sec-resepsi {
+    justify-content: flex-end;
+    align-items: center;
+    text-align: center;
+    padding: 0 5vw 9vh;
+  }
+
+  .sec-resepsi {
+    text-align: center;
+  }
+
+  .card {
+    text-align: center;
+    max-width: 92vw;
+  }
+
+  .card .chip {
+    margin-bottom: 14px;
+  }
+
+  .name {
+    font-size: clamp(44px, 15vh, 104px);
+  }
+
+  .hint {
+    bottom: 18px;
+    font-size: 12px;
+  }
+
+  .demo-tag {
+    max-width: 60vw;
+    text-align: right;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section {
+    transition: none;
+  }
+}
